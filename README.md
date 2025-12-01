@@ -1,6 +1,9 @@
 # Club Maul Bot
 A simple discord bot for Club Maul.
 
+This bot pulls data from a groups audit log and discord server.
+It exports joins/leaves from both the group and discord server into a single unified channel, while also accounting for custom discord usernames.
+
 ### Maul[root]/config.js
 This houses your discord bot token and ID.
 
