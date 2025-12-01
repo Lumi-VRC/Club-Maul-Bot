@@ -1,0 +1,9 @@
+{
+  "VRChat": {
+    "user": "username",
+    "pass": "password",
+    "twofa": "qr code",
+    "authCookie": ""
+  }
+}
+
