@@ -36,9 +36,8 @@ function loadConstants() {
 }
 
 const SUPPORTED_EVENT_TYPES = new Set([
-  'group.member.join',
   'group.member.leave',
-  'group.member.request'
+  'group.request.create'
 ]);
 
 /**
@@ -90,11 +89,10 @@ function resolveProfileId(record) {
  * Translate a VRChat audit row into a Discord embed, using the bot's avatar for flair.
  */
 function buildEventEmbed(record, client) {
-  const isJoin = record.eventType === 'group.member.join';
   const isLeave = record.eventType === 'group.member.leave';
-  const isRequest = record.eventType === 'group.member.request';
+  const isRequest = record.eventType === 'group.request.create';
 
-  const color = isRequest ? 0x3498db : isJoin ? 0x2ecc71 : 0xe74c3c;
+  const color = isRequest ? 0x3498db : 0xe74c3c;
   const username = resolveDisplayName(record);
   const profileId = resolveProfileId(record);
   const profileLink = profileId ? `https://vrchat.com/home/user/${profileId}` : 'https://vrchat.com/home';
@@ -109,7 +107,7 @@ function buildEventEmbed(record, client) {
       { name: 'Profile', value: profileLink, inline: false },
       { name: 'When', value: `<t:${discordTimestamp}:F>`, inline: false }
     )
-    .setFooter({ text: isRequest ? 'Member requested' : isJoin ? 'Member joined' : 'Member left' });
+    .setFooter({ text: isRequest ? 'Join request submitted' : 'Member left' });
 
   if (client?.user) {
     const avatar = client.user.displayAvatarURL({ size: 256 });
