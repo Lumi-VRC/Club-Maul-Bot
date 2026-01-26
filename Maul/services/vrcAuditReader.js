@@ -11,6 +11,7 @@ const DEFAULT_TABLE = 'maulAuditLogs';
 const USER_AGENT = 'MaulBot/AuditReader';
 const POLL_INTERVAL_MS = Number(process.env.MAUL_AUDIT_POLL_INTERVAL_MS || 60_000);
 const AUDIT_PAGE_SIZE = Number(process.env.MAUL_AUDIT_PAGE_SIZE || 50);
+const AUTH_RETRY_COOLDOWN_MS = Number(process.env.MAUL_AUTH_RETRY_COOLDOWN_MS || 3_600_000); // 1 hour
 
 const CONST_PATH = path.join(__dirname, '..', 'data', 'const.json');
 const AUTH_PATH = path.join(__dirname, '..', 'data', 'vrcLogin.json');
@@ -132,7 +133,7 @@ function extractAuthCookie(response) {
  */
 async function performLogin(authConfig) {
   const configuration = new vrchat.Configuration({
-    username: encodeURIComponent(authConfig.VRChat.user),
+    username: encodeURIComponent(authConfig.VRChat.email),
     password: encodeURIComponent(authConfig.VRChat.pass),
     baseOptions: { headers: { 'User-Agent': USER_AGENT } }
   });
@@ -172,7 +173,7 @@ async function performLogin(authConfig) {
   authConfig.VRChat.authCookie = cookie;
   safeWriteJson(AUTH_PATH, authConfig);
 
-  logger.info(`[VRCAuditReader] Authenticated to VRChat as ${initial?.data?.displayName || authConfig.VRChat.user}.`);
+  logger.info(`[VRCAuditReader] Authenticated to VRChat as ${initial?.data?.displayName || authConfig.VRChat.email}.`);
   return cookie;
 }
 
@@ -282,9 +283,24 @@ async function startVrcAuditReader() {
   let authCookie = null;
   let timer = null;
   let isPolling = false;
+  let lastAuthFailureTime = null;
 
   async function ensureAuth(force = false) {
+    // If we have a valid cookie and not forcing, use it
     if (authCookie && !force) return authCookie;
+    
+    // Check if we're in cooldown period after a failed authentication
+    if (lastAuthFailureTime !== null) {
+      const timeSinceFailure = Date.now() - lastAuthFailureTime;
+      if (timeSinceFailure < AUTH_RETRY_COOLDOWN_MS) {
+        const remainingMinutes = Math.ceil((AUTH_RETRY_COOLDOWN_MS - timeSinceFailure) / 60_000);
+        logger.debug(`[VRCAuditReader] Authentication retry cooldown active. Retrying in ${remainingMinutes} minute(s).`);
+        throw new Error(`Authentication retry cooldown: ${remainingMinutes} minute(s) remaining`);
+      }
+      // Cooldown expired, reset failure time
+      lastAuthFailureTime = null;
+    }
+    
     authCookie = await performLogin(authConfig);
     return authCookie;
   }
@@ -322,8 +338,9 @@ async function startVrcAuditReader() {
     } catch (error) {
       const status = error?.response?.status;
       if (status === 401 || status === 403) {
-        logger.warn('[VRCAuditReader] Authentication expired. Re-authenticating...');
+        logger.warn('[VRCAuditReader] Authentication expired. Will retry after cooldown period.');
         authCookie = null;
+        lastAuthFailureTime = Date.now();
       } else if (status === 429) {
         logger.warn('[VRCAuditReader] Rate limited by VRChat API. Will retry on next cycle.');
       } else {
