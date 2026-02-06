@@ -12,6 +12,7 @@ const USER_AGENT = 'MaulBot/AuditReader';
 const POLL_INTERVAL_MS = Number(process.env.MAUL_AUDIT_POLL_INTERVAL_MS || 60_000);
 const AUDIT_PAGE_SIZE = Number(process.env.MAUL_AUDIT_PAGE_SIZE || 50);
 const AUTH_RETRY_COOLDOWN_MS = Number(process.env.MAUL_AUTH_RETRY_COOLDOWN_MS || 3_600_000); // 1 hour
+const AUTH_REFRESH_MS = Number(process.env.MAUL_AUTH_REFRESH_MS || 10_800_000); // 3 hours
 
 const CONST_PATH = path.join(__dirname, '..', 'data', 'const.json');
 const AUTH_PATH = path.join(__dirname, '..', 'data', 'vrcLogin.json');
@@ -284,6 +285,7 @@ async function startVrcAuditReader() {
   let timer = null;
   let isPolling = false;
   let lastAuthFailureTime = null;
+  let refreshTimer = null;
 
   async function ensureAuth(force = false) {
     // If we have a valid cookie and not forcing, use it
@@ -301,6 +303,14 @@ async function startVrcAuditReader() {
       lastAuthFailureTime = null;
     }
     
+    if (force) {
+      authCookie = null;
+      if (authConfig?.VRChat) {
+        authConfig.VRChat.authCookie = null;
+        safeWriteJson(AUTH_PATH, authConfig);
+      }
+    }
+
     authCookie = await performLogin(authConfig);
     return authCookie;
   }
@@ -366,9 +376,19 @@ async function startVrcAuditReader() {
 
   logger.info('[VRCAuditReader] Polling scheduled.');
 
+  if (AUTH_REFRESH_MS > 0) {
+    refreshTimer = setInterval(() => {
+      ensureAuth(true)
+        .then(() => logger.info('[VRCAuditReader] Periodic auth refresh complete.'))
+        .catch((error) => logger.warn('[VRCAuditReader] Periodic auth refresh failed.', error));
+    }, AUTH_REFRESH_MS);
+    logger.info(`[VRCAuditReader] Auth refresh scheduled every ${Math.round(AUTH_REFRESH_MS / 3_600_000)} hour(s).`);
+  }
+
   return {
     stop: async () => {
       if (timer) clearInterval(timer);
+      if (refreshTimer) clearInterval(refreshTimer);
       await pool.end();
       logger.info('[VRCAuditReader] Stopped.');
     }
